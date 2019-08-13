@@ -1,0 +1,146 @@
+--- To view the dataset
+hadoop fs -cat /user/raghavendra/yellowtrip/yellow_tripdata_2015-01-06.csv.gz | zcat | tail -n +2 > yellow_trip.csv;
+
+--- To upload to HDFS
+hadoop fs -put '/home/mplbdhl24/yellow_trip.csv' /user/mplbdhl24/yellow_trip
+
+--- To create database
+create database nyc_cab_dsb6;
+
+--- To open database
+use nyc_cab_dsb6;
+
+--- To create table
+
+create external table ylw_taxi_unclean
+(VendorID int,
+tpep_pickup_datetime string,
+tpep_dropoff_datetime string,
+passenger_count int,
+trip_distance double, 
+pickup_longitude double,
+pickup_latitude double,
+RateCodeID int,
+store_and_fwd_flag string,
+dropoff_longitude double,
+dropoff_latitude double,
+payment_type int,
+fare_amount double,
+extra double,
+mta_tax double,
+tip_amount double,
+tolls_amount double,
+total_amount double)
+row format delimited
+fields terminated by ","
+lines terminated by "\n";
+
+--- To load the data into table
+load data inpath '/user/mplbdhl24/yellow_trip/yellow_trip.csv' into table nyc_cab_dsb6.ylw_taxi_unclean;
+
+--- To find no. of trips having trip_distance is less than or equal to zero
+
+select count(*) from ylw_taxi_unclean where trip_distance <= 0;
+### 463178 trips
+
+--- To find no. of trips having pickup_latitude and pickup_longitude equal to zero and pickups outside new-york
+
+select count(*) from ylw_taxi_unclean
+where (pickup_latitude < 40.5774 or pickup_latitude > 40.9176)
+and (pickup_longitude < -74.15 or pickup_longitude > -73.7004)
+and (pickup_latitude == 0.0 or pickup_longitude == 0.0);
+### 1326401 trips
+
+--- To find no. of trips having dropoff_latitude and dropoff_longitude equal to zero
+
+select count(*) from ylw_taxi_unclean where dropoff_latitude == 0.0 or dropoff_longitude ==0.0;
+### 1285964 trips
+
+--- Query for preprocessing the dataset
+
+create table ylw_taxi_apoorva like ylw_taxi_unclean;
+
+insert overwrite table ylw_taxi_apoorva
+select * from ylw_taxi_unclean
+where trip_distance > 0 and
+(pickup_latitude >= 40.5774 or pickup_latitude <= 40.9176)
+and (pickup_longitude >= -74.15 or pickup_longitude <= -73.7004)
+and (pickup_latitude != 0.0 or pickup_longitude != 0.0) and
+(dropoff_latitude != 0.0 or dropoff_longitude !=0.0);
+
+--- To find no. of trips having drop-offs outside new-york
+
+select count(*) from ylw_taxi_clean
+where (dropoff_longitude < -74.15 or dropoff_longitude > -73.7004)
+and (dropoff_latitude < 40.5774 or dropoff_latitude > 40.9176);
+### 8363 trips
+
+--- Is people in new-york prefer short or long (>30 milies) distance trip
+
+create view short_long_view as
+select *, case when trip_distance > 30 then 'Long_Distance_Trip'
+else 'Short_Distance_Trip'
+end as trip from ylw_taxi_clean;
+
+select trip, count(*) from short_long_view group by trip;
+
+--- Which region having more no of pickup location
+
+select pickup_longitude, pickup_latitude, count(*) as no_of_trips
+from ylw_taxi_clean
+group by pickup_longitude, pickup_latitude
+order by no_of_trips desc
+limit 10;
+
+--- Which region having more no of dropup location
+
+select dropoff_longitude, dropoff_latitude, count(*) as no_of_trips
+from ylw_taxi_clean
+group by dropoff_longitude, dropoff_latitude
+order by no_of_trips desc
+limit 10;
+
+--- Top 5 pickup location mostly prefer short distance trip
+
+select pickup_longitude, pickup_latitude, count(*) as no_of_trips
+from short_long_view
+where trip == 'Short_Distance_Trip'
+group by pickup_longitude, pickup_latitude
+order by no_of_trips desc
+limit 5;
+
+--- Top 5 pickup location mostly prefer long distance trip
+
+select pickup_longitude, pickup_latitude, count(*) as no_of_trips
+from short_long_view
+where trip == 'Long_Distance_Trip'
+group by pickup_longitude, pickup_latitude
+order by no_of_trips desc
+limit 5;
+
+--- Top 5 drop-offs location mostly prefer short distance trip
+
+select dropoff_longitude, dropoff_latitude, count(*) as no_of_trips
+from short_long_view
+where trip == 'Short_Distance_Trip'
+group by dropoff_longitude, dropoff_latitude
+order by no_of_trips desc
+limit 5;
+
+--- Top 5 drop-offs location mostly prefer long distance trip
+
+select dropoff_longitude, dropoff_latitude, count(*) as no_of_trips
+from short_long_view
+where trip == 'Long_Distance_Trip'
+group by dropoff_longitude, dropoff_latitude
+order by no_of_trips desc
+limit 5;
+
+INSERT OVERWRITE LOCAL DIRECTORY '/home/mplbdhl24/yellow_trip_dropoff.csv'
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY ','
+STORED AS TEXTFILE
+
+select count(*) from ylw_taxi_clean
+where pickup_latitude not in ( select dropoff_latitude from ylw_taxi_clean) as a,
+pickup_longitude not in (select dropoff_longitude from ylw_taxi_clean) as b;
